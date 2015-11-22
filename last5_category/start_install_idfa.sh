@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CLUSTER_NAME="awscn-up-emr-active"
+CLUSTER_NAME="awscn-up-emr-idfa_install"
 LOG_URI="s3://logarchive.ym/emr-logs/"
 AMI_VERSION="3.8.0"
 HIVE_VERSION="0.13.1"
@@ -10,7 +10,7 @@ MASTER_NAME="up-MASTER"
 MASTER_NUM=1
 MASTER_TYPE="m1.large"
 CORE_NAME="up-CORE"
-CORE_NUM=4
+CORE_NUM=10
 CORE_TYPE="m1.large"
 TASK_NAME="up-TASK"
 TASK_NUM=0
@@ -86,7 +86,7 @@ aws emr put --cluster-id $cluster_id --key-pair-file ./key/id_rsa --src ./key/id
 aws emr put --cluster-id $cluster_id --key-pair-file ./key/id_rsa --src ./key/id_rsa.pub --dest /home/hadoop/.ssh/id_rsa.pub
 aws emr put --cluster-id $cluster_id --key-pair-file ./key/id_rsa --src ./spark/slaves --dest /home/hadoop/spark/conf/slaves
 aws emr put --cluster-id $cluster_id --key-pair-file ./key/id_rsa --src ./spark/start_cluster --dest /home/hadoop/start_cluster
-aws emr put --cluster-id $cluster_id --key-pair-file ./key/id_rsa --src ./spark/active_calculate.py --dest /home/hadoop/active_calculate.py
+aws emr put --cluster-id $cluster_id --key-pair-file ./key/id_rsa --src ./spark/get_idfa_install.py --dest /home/hadoop/get_idfa_install.py
 
 # start cluster
 echo "start cluster"
@@ -97,23 +97,12 @@ ip_arr=(${master_ip//./ })
 SPARK_MASTER="spark://ip-${ip_arr[0]}-${ip_arr[1]}-${ip_arr[2]}-${ip_arr[3]}:7077"
 DATE=${LOG_DATE}
 echo "Now Processing ${DATE}"
+INPUT_PATH=s3://logarchive.ym/user_packages/1509/ios/
+IDFA_PATH=s3://datamining.ym/user_profile/commerce/install_dict/ios/${DATE}
 
-days_ago=1
-while((days_ago>=1))
-do
-lastday=`expr $days_ago + 1`
-LAST_DAY=`date -d"$lastday day ago" +"%Y-%m-%d"`
-THIS_DAY=`date -d"$days_ago day ago" +"%Y-%m-%d"`
-INPUT_PATH=s3://datamining.ym/user_profile/last5/${THIS_DAY}/part*
-DICT_PATH=s3://datamining.ym/user_profile/commerce/dict/app_dict.txt
-LAST_PATH=s3://datamining.ym/user_profile/commerce/activeness/${LAST_DAY}/
-OUTPUT_PATH=s3://datamining.ym/user_profile/commerce/activeness/${THIS_DAY}/
-
-step_result=`aws emr add-steps --cluster-id $cluster_id --steps Type=CUSTOM_JAR,Name=interest,Jar=s3://cn-north-1.elasticmapreduce/libs/script-runner/script-runner.jar,ActionOnFailure=TERMINATE_CLUSTER,Args=[/home/hadoop/spark/bin/spark-submit,--name,"Count activeness $DATE",--master,$SPARK_MASTER,--executor-memory,3G,--total-executor-cores,10,/home/hadoop/active_calculate.py,$INPUT_PATH,$DICT_PATH,$LAST_PATH,$OUTPUT_PATH]`
+step_result=`aws emr add-steps --cluster-id $cluster_id --steps Type=CUSTOM_JAR,Name=GetLast5Package,Jar=s3://cn-north-1.elasticmapreduce/libs/script-runner/script-runner.jar,ActionOnFailure=TERMINATE_CLUSTER,Args=[/home/hadoop/spark/bin/spark-submit,--name,"get idfa install dict $DATE",--master,$SPARK_MASTER,--executor-memory,3G,--total-executor-cores,20,/home/hadoop/get_idfa_install.py,$INPUT_PATH,$IDFA_PATH]`
 step_id=`echo $step_result | grep -Po 's-[^"]*'`
 echo "step_id:" $step_id
-days_ago=`expr $days_ago - 1`
-done
 
 # check job done
 timeout=1

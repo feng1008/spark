@@ -9,9 +9,6 @@ import math;
 
 appDict=None;
 LAST5_DECAY_RATIO=0.95;
-INTE_THR=0.1
-FIRST_CLASS=u'购物电商'
-SEC_CLASS_SET=set((u"商城特卖",u"导购返利",u"海淘",u"团购",u"优惠券",u"众筹夺宝",u"二手买卖"))
 
 def tupleFilter(line):
     if line[0]=="" or line[1]=="":
@@ -45,13 +42,13 @@ def parseLast(text):
     first_class, first_inter, normal_first_inter=first_str.split(':');
     first_inter=LAST5_DECAY_RATIO*float(first_inter);
     normal_first_inter=my_sigmoid(first_inter);
-
     re_first_str=first_class+':'+str(first_inter)+':'+str(normal_first_inter);
 
     re_second_str='';
     for s_str in second_str.split('|'):
-        if len(s_str.strip('\r\n').split(':'))==3:
-            second_class, second_inter, normal_second_inter=s_str.split(':');
+        if len(s_str.strip('\r\n').split(':'))==4:
+            second_class_t, second_class_c, second_inter, normal_second_inter=s_str.split(':');
+            second_class=second_class_t+':'+second_class_c;
         else:
             continue;
         second_inter=LAST5_DECAY_RATIO*float(second_inter);
@@ -84,15 +81,14 @@ def parseDict(text):
     return (t[0]+'\t'+t[1], t[2]+'\t'+t[3]);
 
 def mapCategory(text):
-    global sec_class_dict
-
-    ymid, id_class=text[0].strip('\r\n').split('\t');
+    ymid, id_class=text[0].split('\t');
     if id_class=='idfa':
-        platform='ios';
+        platform='iOS';
     elif id_class=='imei' or id_class=='mac':
-        platform='android';
+        platform='Android';
     else:
         platform='unknown';
+
     app_list=text[1];
     first_num=0.0;
     sec_dict={};
@@ -103,19 +99,21 @@ def mapCategory(text):
         else:
             continue;
 
+        if first_class!=u'购物电商':
+            continue;
         first_num+=1;
 
-        for s_class in second_class.split('|'):
-            if s_class not in SEC_CLASS_SET:
+        for s_c in second_class.split('|'):
+            if s_c==u'无':
                 continue;
-            if sec_dict.has_key(s_class):
-                sec_dict[s_class]+=1;
+            if sec_dict.has_key(s_c):
+                sec_dict[s_c]+=1;
             else:
-                sec_dict[s_class]=1;
+                sec_dict[s_c]=1;
     if first_num==0.0:
         return ("", "");
     n_first_num=my_sigmoid(first_num);
-    result+=FIRST_CLASS+':'+str(first_num)+':'+str(n_first_num)+'\t';
+    result+=u'购物电商'+':'+str(first_num)+':'+str(n_first_num)+'\t';
 
     if len(sec_dict)!=0:
         for key,values in sec_dict.items():
@@ -131,7 +129,7 @@ def strReduce(a,b):
     return a1+'|'+b1+'\t'+a2+'|'+b2;
 
 def mapInterest(text):
-    ymid, id_class=text[0].strip('\r\n').split('\t');
+    ymid_id_class=text[0];
     first_str, second_str=text[1].split('\t');
 
     first_num=0.0;
@@ -141,34 +139,28 @@ def mapInterest(text):
         except:
             continue;
 
-    if first_num<INTE_THR:
-        return ""
     n_first_num=my_sigmoid(first_num);
 
-    result=ymid+'\t'+id_class+'\t'+FIRST_CLASS+':'+str(first_num)+':'+str(n_first_num)+'\t';
-    # result=ymid+'\t'+id_class+'\t'+'30170'+':'+str(first_num)+':'+str(n_first_num)+'\t';
+    result=ymid_id_class+'\t'+u'购物电商'+':'+str(first_num)+':'+str(n_first_num)+'\t';
 
     second_dict={};
 
     for s_str in second_str.strip('\r\n').split('|'):
-        if len(s_str.split(':'))==3:
-            s_class, s_num, s_n_num=s_str.split(':');
+        if len(s_str.split(':'))==4:
+            s_class_t, s_class_c, s_num, s_n_num=s_str.split(':');
+            s_class=s_class_t+':'+s_class_c;
         else:
             continue;
-        # s_c=sec_class_dict[s_class]
         if second_dict.has_key(s_class):
             second_dict[s_class]+=float(s_num);
         else:
             second_dict[s_class]=float(s_num);
 
     for key,values in second_dict.items():
-        if values<INTE_THR:
-            continue
         n_values=my_sigmoid(values);
         result+=key+':'+str(values)+':'+str(n_values)+'|';
-    if result.split('\t')[-1]=='':
-        return ""
     result=result[:-1];
+
     return result;
 
 def main(sc):
@@ -187,10 +179,8 @@ def main(sc):
     todayData=sc.textFile(inputFile).map(parse).filter(tupleFilter).map(mapCategory).filter(tupleFilter2)
     # todayData.map(lambda x:x[0]+'\t'+x[1]).saveAsTextFile('today');
 
-    result=lastData.union(todayData).reduceByKey(strReduce, numPartitions=1000).map(mapInterest).filter(lambda x:False if x=="" else True);
-    codec = "org.apache.hadoop.io.compress.GzipCodec";
-    result.saveAsTextFile(outputFile, codec);
-    # result.saveAsTextFile(outputFile);
+    result=lastData.union(todayData).reduceByKey(strReduce).map(mapInterest);
+    result.saveAsTextFile(outputFile);
     sc.stop();
 
 if __name__=="__main__":

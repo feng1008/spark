@@ -98,8 +98,8 @@ SPARK_MASTER="spark://ip-${ip_arr[0]}-${ip_arr[1]}-${ip_arr[2]}-${ip_arr[3]}:707
 DATE=${LOG_DATE}
 echo "Now Processing ${DATE}"
 
-days_ago=154
-while((days_ago>=152))
+days_ago=1
+while((days_ago>=1))
 do
 lastday=`expr $days_ago + 1`
 LAST_DAY=`date -d"$lastday day ago" +"%Y-%m-%d"`

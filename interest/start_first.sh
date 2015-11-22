@@ -97,10 +97,10 @@ ip_arr=(${master_ip//./ })
 SPARK_MASTER="spark://ip-${ip_arr[0]}-${ip_arr[1]}-${ip_arr[2]}-${ip_arr[3]}:7077"
 DATE=${LOG_DATE}
 echo "Now Processing ${DATE}"
-INPUT_PATH=s3://datamining.ym/user_profile/last5/2015-03-02/*
+INPUT_PATH=s3://datamining.ym/user_profile/last5/2015-06-26/*
 DICT_PATH=s3://datamining.ym/user_profile/commerce/dict/app_dict.txt
 # OUTPUT_PATH=s3://datamining.ym/buysCount/${DATE}
-OUTPUT_PATH=s3://datamining.ym/user_profile/commerce/interest/2015-03-02/
+OUTPUT_PATH=s3://datamining.ym/user_profile/commerce/interest/2015-06-26/
 
 step_result=`aws emr add-steps --cluster-id $cluster_id --steps Type=CUSTOM_JAR,Name=interest,Jar=s3://cn-north-1.elasticmapreduce/libs/script-runner/script-runner.jar,ActionOnFailure=TERMINATE_CLUSTER,Args=[/home/hadoop/spark/bin/spark-submit,--name,"Count interest $DATE",--master,$SPARK_MASTER,--executor-memory,3G,--total-executor-cores,10,/home/hadoop/interest_first.py,$INPUT_PATH,$DICT_PATH,$OUTPUT_PATH]`
 step_id=`echo $step_result | grep -Po 's-[^"]*'`

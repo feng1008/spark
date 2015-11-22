@@ -2,35 +2,18 @@
 #-*- coding:utf8 -*-
 from pyspark import SparkContext, SparkConf;
 import time;
-import json;
 import sys;
 import os;
+import math;
 
 appDict=None;
-
-def strFilter(line):
-    t=line.split('\t');
-    if len(t)<3:
-        return False;
-    else:
-        return True;
+sec_class_set=set((u"商城特卖",u"导购返利",u"海淘",u"团购",u"优惠券",u"众筹夺宝",u"二手买卖"))
 
 def tupleFilter(line):
-    if line[0]=="" or line[1]=="":
+    if line[0]=="" or len(line[1].strip('\r\n').split('\t'))<2:
         return False;
     else:
         return True;
-
-def parseLast(text):
-    t=text.split('\t');
-    if len(t)==4:
-        ymid, id_class, first_class, second_class=t;
-        return (ymid+'\t'+id_class,first_class+'\t'+second_class);
-    elif len(t)==3:
-        ymid, id_class, first_class=t;
-        return (ymid+'\t'+id_class,first_class);
-    else:
-        return ("","");
 
 def parseDict(text):
     t=text.split('\t');
@@ -40,26 +23,28 @@ def parseDict(text):
 
 def parse(text):
     ymid, package_str=text.strip('\r\n').split("\t");
+
     if ymid=="":
-        return "";
+        return ("","");
     package_lines=package_str.split('&');
-    first_dict={};
+    first_class_time=0;
     second_dict={};
-    tuple_key='';
     result='';
+    id_class='';
 
     for lines in package_lines:
         id_class, login_time, packages=lines.split('^');
-        tuple_key=ymid+'\t'+id_class;
+
         if id_class=="" or login_time=="":
             continue;
 
         if id_class=='idfa':
-            platform='iOS';
+            platform='ios';
         elif id_class=='imei' or id_class=='mac':
-            platform='Android';
+            platform='android';
         else:
-            platform='unknown';
+            continue;
+
         try:
             timeArray=time.strptime(login_time, "%Y-%m-%d+%H:%M:%S");
         except:
@@ -72,78 +57,24 @@ def parse(text):
             else:
                 continue;
 
-            if first_class!=u'购物电商' or second_class==u'无':
-                continue;
+            if first_class_time<last_time:
+                first_class_time=last_time;
 
-            if first_dict.has_key(first_class):
-                if first_dict[first_class]<last_time:
-                    first_dict[first_class]=last_time;
-            else:
-                first_dict[first_class]=last_time;
-            
-            if second_dict.has_key(first_class):
-                if second_dict[second_class]<last_time:
-                    second_dict[second_class]=last_time;
-            else:
-                second_dict[second_class]=last_time;
+            for s_c in second_class.split('|'):
+                if s_c not in sec_class_set:
+                    continue
+                if second_dict.has_key(s_c):
+                    if second_dict[s_c]<last_time:
+                        second_dict[s_c]=last_time;
+                else:
+                    second_dict[s_c]=last_time;
 
-    for key,values in first_dict.items():
-        result+=key+':'+str(values)+'|';
-    result=result[:-1]+'\t';
+    result+=u'购物电商'+':'+str(first_class_time)+'\t';
+
     for key,values in second_dict.items():
         result+=key+':'+str(values)+'|';
     result=result[:-1];
-    return (tuple_key, result);
-
-def activeReduce(a,b):
-    ta=a.split('\t');
-    first_dict={};
-    second_dict={};
-    if len(ta)==2:
-        first_a, second_a=ta;
-    elif len(ta)==1:
-        first_a=a;second_a='';
-
-    tb=b.split('\t');
-    if len(tb)==2:
-        first_b, second_b=tb;
-    elif len(tb)==1:
-        first_b=b;second_b='';
-
-    first_str=first_a+'|'+first_b;
-    second_str=second_a+'|'+second_b;
-
-    for first_t in first_str.split('|'):
-        k, v=first_t.split(':');
-        if first_dict.has_key(k):
-            if int(first_dict[k])<int(v):
-                first_dict[k]=v;
-            else:
-                continue;
-        else:
-            first_dict[k]=v;
-
-    for second_t in second_str.split('|'):
-        k, v=second_t.split(':');
-        if second_dict.has_key(k):
-            if int(second_dict[k])<int(v):
-                second_dict[k]=v;
-            else:
-                continue;
-        else:
-            second_dict[k]=v;
-
-    result='';
-    if len(first_dict)!=0:
-        for key, values in first_dict.items():
-            result+=key+':'+values+'|';
-        result=result[:-1]+'\t';
-
-    if len(second_dict)!=0:
-        for key, values in second_dict.items():
-            result+=key+':'+values+'|';
-    result=result[:-1];
-    return result;
+    return (ymid+'\t'+id_class, result);
 
 def tupleMap(line):
     return line[0]+'\t'+line[1];
@@ -153,21 +84,14 @@ def main(sc):
 
     inputFile=sys.argv[1];
     dictFile=sys.argv[2];
-    # lastFile=sys.argv[3];    
-    outputFile=sys.argv[3];    
-        
+    outputFile=sys.argv[3];
+
     active_dict = dict(sc.textFile(dictFile).map(parseDict).collect());
     appDict=sc.broadcast(active_dict);
-
-    # lastData=sc.textFile(lastFile).map(parseLast).filter(tupleFilter);
-    # lastData.saveAsTextFile('last');
 
     todayData=sc.textFile(inputFile).map(parse).filter(tupleFilter).map(tupleMap);
     todayData.saveAsTextFile(outputFile);
 
-    # result=lastData.union(todayData).reduceByKey(activeReduce).map(tupleMap);
-    # # result=lastData.union(todayData).reduceByKey(activeReduce).map(tupleMap);
-    # result.saveAsTextFile(outputFile);
     sc.stop();
 
 if __name__=='__main__':

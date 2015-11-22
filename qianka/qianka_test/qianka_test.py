@@ -4,6 +4,7 @@ import codecs, csv
 import pickle
 import os
 from sklearn.feature_extraction.text import CountVectorizer
+from math import log
 
 general_app=set()
 app_vocabulary=set()
@@ -14,7 +15,7 @@ def gen_vocab(filename):
 
     for lines in open(filename, 'r').xreadlines():
         app_vocabulary.add(lines.strip('\r\n').replace('.', '_'))
-    pickle.dump(app_vocabulary, open('data_0916/app_vocab.pkl','w'))
+    pickle.dump(app_vocabulary, open('data/app_vocab.pkl','w'))
 
 def read_general_app(filename):
     global general_app
@@ -22,7 +23,7 @@ def read_general_app(filename):
     for lines in open(filename, 'r').readlines():
         app_name=lines.strip('\r\n').split('\t')[0]
         general_app.add(app_name)
-    pickle.dump(general_app, open('data_0916/gen_app.pkl','w'))
+    pickle.dump(general_app, open('data/gen_app.pkl','w'))
 
 def get_2fee_app_dict(filename):
     global app_pay_dict
@@ -36,7 +37,7 @@ def get_2fee_app_dict(filename):
             app_pay_dict[app_name]=app_price
         else:
             continue
-    pickle.dump(app_pay_dict, open('data_0916/app_pay_dict.pkl', 'w'))
+    pickle.dump(app_pay_dict, open('data/app_pay_dict.pkl', 'w'))
 
 def gen_add_feature(train_x):
     global general_app
@@ -68,18 +69,18 @@ def gen_add_feature(train_x):
         result.append([float(gen_ratio), float(fee_c), float(fee_avg)]) 
     return result
 
-def vectorize_data(train_data):
+def vectorize_data(test_data):
     global app_vocabulary
 
-    vectorize=pickle.load(open('model/vector.pkl','r'))
-    counts_train=vectorize.fit_transform(train_data)
+    vectorize=CountVectorizer(vocabulary=list(app_vocabulary))
+    # import pdb;pdb.set_trace()
+    counts_train=vectorize.fit_transform(test_data)
 
     return counts_train
 
 def lr_l2_test(train_x):
-    # print "logistic regression loss with L2 norm:"  
     if not os.path.exists('model/lr_l2_clf.pkl'):
-        print "model lr_l2_clf.pkl does not exist"
+        print "model lr_l2_clf.pkl does not exist!"
         return 
     else:
         output=open('model/lr_l2_clf.pkl', 'rb')
@@ -87,20 +88,23 @@ def lr_l2_test(train_x):
 
     y=clf.predict_proba(train_x)    
     y=[float('%0.3f'%x[-1]) for x in y]
-    # y=[1  if x[-1]>0.5 else 0 for x in y ]
+    y2=[1  if x>0.5 else 0 for x in y ]
+    # print y2
     return y
 
 def GBDT_test(test_x):
-    print "gradient boosting classifier:"  
+    # print "gradient boosting classifier:"  
     if not os.path.exists('model/GBDT.pkl'):
-        print "model GBDT.pkl does not exist"
+        print "model GBDT.pkl does not exist!"
         return 
     else:
         output=open('model/GBDT.pkl', 'rb')
         est=pickle.load(output)
 
-    y=est.predict(test_x)  
-    print y  
+    y=list(est.predict(test_x))
+    # import pdb;pdb.set_trace()
+    # error=sum([1 if label[i]!=y[i] else 0 for i in range(len(y))])
+    # print error/float(len(label))
     return y
 
 def cat_feature(x1, x2):
@@ -112,19 +116,48 @@ def cat_feature(x1, x2):
         result.append(a+[b])
     return result
 
-if __name__=='__main__':
-    #vectorize 和lr_l1模型地址
-    gen_vocab('data_0831/ios_top3w')
-    read_general_app('data_0831/general_app')
-    get_2fee_app_dict('2.3wfee_package.csv')
-    #安装列表，app_str的一个元素为一个用户的安装列表，app之间以空格隔开，这里只测试了三个用户
-    app_str=['com.alipay.iphoneclient com.gao7.wallpaper.pid39 com.qiyi.iphone com.autohome com.tencent.mqq','com.youku.YouKu \
-    com.sina.sinanews com.ganji.life com.taobao.taobao4iphone yyvoice com.youku.YouKu com.ucweb.iphone.lowversion \
-    com.netease.my com.sogou.sogouinput', 'com.licaifan com.jiaxiao.driveAPP com.lgfz.fanhuanwang com.leju.mobile.ShiHui com.qiyi.iphone com.tencent.mqq']
+def read_app_str(input_file):
+    result=[]
+    idfa_list=[]
+    for lines in open(input_file).xreadlines():
+        try:
+            idfa, app_list=lines.strip('\r\n').split('\t')
+        except:
+            continue
+        idfa_list.append(idfa)
+        apps=' '.join([x.replace('.', '_') for x in app_list.split('|')])
+        result.append(apps)
+    return idfa_list, result
+
+def write_result(idfa, label, output_file):
+    f=open(output_file, 'w')
+    for x, y in zip(idfa, label):
+        f.write(x+'\t'+str(y)+'\n')
+    f.close()
+
+def main():
+    global general_app
+    global app_vocabulary
+    global app_pay_dict
+
+    # general_app=pickle.load(open('data/gen_app.pkl', 'r'))
+    # app_vocabulary=pickle.load(open('data/app_vocab.pkl', 'r'))
+    # app_pay_dict=pickle.load(open('data/app_pay_dict.pkl', 'r'))
+    gen_vocab('data/ios_top3w')
+    read_general_app('data/general_app')
+    get_2fee_app_dict('data/2.3wfee_package.csv')
+    
+    # import pdb;pdb.set_trace()
+    idfa, app_str=read_app_str('qianlu_ifa_cpa.csv')
     test_x=vectorize_data(app_str)
 
     y=lr_l2_test(test_x)
     
     add_feat=gen_add_feature(app_str)
     retest_feat=cat_feature(add_feat, y)
-    GBDT_test(retest_feat)
+    label=GBDT_test(retest_feat)
+    write_result(idfa, label,'result.txt')
+
+if __name__=='__main__':
+    main()
+    

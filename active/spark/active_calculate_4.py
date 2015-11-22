@@ -6,8 +6,6 @@ import sys;
 import os;
 
 appDict=None;
-FIRST_CLASS=u'购物电商'
-SEC_CLASS_SET=set((u"商城特卖",u"导购返利",u"海淘",u"团购",u"优惠券",u"众筹夺宝",u"二手买卖"))
 
 def strFilter(line):
     t=line.split('\t');
@@ -44,22 +42,21 @@ def parse(text):
     package_lines=package_str.split('&');
     first_class_time=0;
     second_dict={};
+    tuple_key='';
     result='';
-    id_class='';
 
     for lines in package_lines:
         id_class, login_time, packages=lines.split('^');
-
+        tuple_key=ymid+'\t'+id_class;
         if id_class=="" or login_time=="":
             continue;
 
         if id_class=='idfa':
-            platform='ios';
+            platform='iOS';
         elif id_class=='imei' or id_class=='mac':
-            platform='android';
+            platform='Android';
         else:
-            continue;
-
+            platform='unknown';
         try:
             timeArray=time.strptime(login_time, "%Y-%m-%d+%H:%M:%S");
         except:
@@ -72,24 +69,27 @@ def parse(text):
             else:
                 continue;
 
+            if first_class!=u'购物电商':
+                continue;
+
             if first_class_time<last_time:
                 first_class_time=last_time;
             
-            for s_c in second_class.split('|'):
-                if s_c not in SEC_CLASS_SET:
-                    continue;
-                if second_dict.has_key(s_c):
-                    if second_dict[s_c]<last_time:
-                        second_dict[s_c]=last_time;
+            for s_class in second_class.split('|'):
+                # if s_class==u'无':
+                #     continue;
+                if second_dict.has_key(s_class):
+                    if second_dict[s_class]<last_time:
+                        second_dict[s_class]=last_time;
                 else:
-                    second_dict[s_c]=last_time;
+                    second_dict[s_class]=last_time;
 
-    result+=FIRST_CLASS+':'+str(first_class_time)+'\t';
+    result+=u'购物电商'+':'+str(first_class_time)+'\t';
 
     for key,values in second_dict.items():
         result+=key+':'+str(values)+'|';
     result=result[:-1];
-    return (ymid+'\t'+id_class, result);
+    return (tuple_key, result);
 
 def activeReduce(a,b):
     first_class_time=0;
@@ -107,10 +107,10 @@ def activeReduce(a,b):
 
     for second_t in second_str.split('|'):
         try:
-            k, v=second_t.split(':');
+            k1, k2, v=second_t.split(':');
+            k=k1+':'+k2;
         except:
             continue;
-
         if second_dict.has_key(k):
             if int(second_dict[k])<int(v):
                 second_dict[k]=int(v);
@@ -119,7 +119,7 @@ def activeReduce(a,b):
         else:
             second_dict[k]=int(v);
 
-    result=FIRST_CLASS+':'+str(first_class_time)+'\t';
+    result=u'购物电商'+':'+str(first_class_time)+'\t';
 
     if len(second_dict)!=0:
         for key, values in second_dict.items():
@@ -147,10 +147,8 @@ def main(sc):
     todayData=sc.textFile(inputFile).map(parse).filter(tupleFilter);
     # todayData.saveAsTextFile(outputFile);
 
-    result=lastData.union(todayData).reduceByKey(activeReduce, numPartitions=1000).map(tupleMap);
-    # result.saveAsTextFile(outputFile);
-    codec = "org.apache.hadoop.io.compress.GzipCodec";
-    result.saveAsTextFile(outputFile, codec);
+    result=lastData.union(todayData).reduceByKey(activeReduce).map(tupleMap);
+    result.saveAsTextFile(outputFile);
     sc.stop();
 
 if __name__=='__main__':
